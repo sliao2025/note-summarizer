@@ -52,9 +52,9 @@ export default async function handler(
 
     // Word count validation
     const wordCount = content.trim().split(/\s+/).length;
-    if (wordCount > 2000) {
+    if (wordCount > 10000) {
       return res.status(400).json({
-        message: `Document exceeds 2000 words (${wordCount} words)`,
+        message: `Document exceeds 10000 words (${wordCount} words)`,
       });
     }
 

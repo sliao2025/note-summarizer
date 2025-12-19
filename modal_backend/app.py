@@ -96,9 +96,9 @@ class Summarizer:
         text = re.sub(r'\s+', ' ', content).strip()
         word_count = len(text.split(" "))
 
-        if word_count > 2000:
+        if word_count > 10000:
             return {
-                "error": f"Document exceeds 2000 words ({word_count} words)",
+                "error": f"Document exceeds 10000 words ({word_count} words)",
                 "success": False
             }
 

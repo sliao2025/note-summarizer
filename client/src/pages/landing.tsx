@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Upload, AlertCircle } from "lucide-react";
 
-const MAX_WORDS = 2000;
+const MAX_WORDS = 10000;
 
 export default function Landing() {
   const [, setLocation] = useLocation();
