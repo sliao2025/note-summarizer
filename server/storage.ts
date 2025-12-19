@@ -1,37 +1,34 @@
-import { type User, type InsertUser } from "@shared/schema";
+import { type Summary } from "@shared/schema";
 import { randomUUID } from "crypto";
 
-// modify the interface with any CRUD methods
-// you might need
-
 export interface IStorage {
-  getUser(id: string): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
+  getSummary(id: string): Promise<Summary | undefined>;
+  createSummary(summary: Omit<Summary, "id">): Promise<Summary>;
+  listSummaries(): Promise<Summary[]>;
 }
 
 export class MemStorage implements IStorage {
-  private users: Map<string, User>;
+  private summaries: Map<string, Summary>;
 
   constructor() {
-    this.users = new Map();
+    this.summaries = new Map();
   }
 
-  async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+  async getSummary(id: string): Promise<Summary | undefined> {
+    return this.summaries.get(id);
   }
 
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
-  }
-
-  async createUser(insertUser: InsertUser): Promise<User> {
+  async createSummary(
+    summary: Omit<Summary, "id">
+  ): Promise<Summary> {
     const id = randomUUID();
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
-    return user;
+    const newSummary: Summary = { ...summary, id };
+    this.summaries.set(id, newSummary);
+    return newSummary;
+  }
+
+  async listSummaries(): Promise<Summary[]> {
+    return Array.from(this.summaries.values());
   }
 }
 
