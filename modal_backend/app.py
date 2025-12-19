@@ -7,6 +7,8 @@ Deploy with: modal deploy modal_backend/app.py
 
 import modal
 import re
+import base64
+import io
 
 # Define the Modal image with all required dependencies
 image = (
@@ -52,6 +54,38 @@ class Summarizer:
         except LookupError:
             nltk.download('punkt_tab', quiet=True)
 
+    def _extract_text_from_pdf(self, content_bytes: bytes) -> str:
+        """Extract text from PDF bytes."""
+        from PyPDF2 import PdfReader
+        
+        try:
+            pdf_file = io.BytesIO(content_bytes)
+            reader = PdfReader(pdf_file)
+            text = ""
+            for page in reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + " "
+            return text.strip()
+        except Exception as e:
+            print(f"Error extracting PDF text: {e}")
+            raise ValueError(f"Failed to extract text from PDF: {str(e)}")
+
+    def _extract_text_from_docx(self, content_bytes: bytes) -> str:
+        """Extract text from DOCX bytes."""
+        from docx import Document
+        
+        try:
+            docx_file = io.BytesIO(content_bytes)
+            document = Document(docx_file)
+            text = ""
+            for paragraph in document.paragraphs:
+                text += paragraph.text + " "
+            return text.strip()
+        except Exception as e:
+            print(f"Error extracting DOCX text: {e}")
+            raise ValueError(f"Failed to extract text from DOCX: {str(e)}")
+
     def _get_overlap_sentences(self, sentences: list, overlap: int) -> list:
         """Get overlap sentences from the end of current chunk."""
         overlap_chunk = []
@@ -90,44 +124,102 @@ class Summarizer:
         return chunks
 
     @modal.method()
-    def summarize(self, content: str, chunk_length: int = 500, overlap_length: int = 50) -> dict:
-        """Summarize the provided text content."""
-        # Clean text
-        text = re.sub(r'\s+', ' ', content).strip()
-        word_count = len(text.split(" "))
+    def summarize(
+        self, 
+        content: str, 
+        file_type: str = "txt",
+        is_base64: bool = False,
+        chunk_length: int = 500, 
+        overlap_length: int = 50
+    ) -> dict:
+        """Summarize the provided content."""
+        try:
+            # Extract text based on file type
+            if is_base64 and file_type in ['pdf', 'docx']:
+                # Decode base64 content
+                content_bytes = base64.b64decode(content)
+                
+                if file_type == 'pdf':
+                    text = self._extract_text_from_pdf(content_bytes)
+                elif file_type == 'docx':
+                    text = self._extract_text_from_docx(content_bytes)
+                else:
+                    text = content
+            else:
+                # Plain text content
+                text = content
+            
+            # Clean text
+            text = re.sub(r'\s+', ' ', text).strip()
+            word_count = len(text.split(" "))
+            
+            print(f"Extracted {word_count} words from {file_type} file")
 
-        if word_count > 10000:
+            if word_count > 10000:
+                return {
+                    "error": f"Document exceeds 10000 words ({word_count} words)",
+                    "success": False
+                }
+            
+            if word_count < 10:
+                return {
+                    "error": "Document is too short to summarize (less than 10 words)",
+                    "success": False
+                }
+
+            # Get chunks
+            chunks = self._chunk_by_sentences(text, chunk_length, overlap_length)
+            
+            print(f"Created {len(chunks)} chunks")
+            
+            # Summarize each chunk
+            summary_parts = []
+            
+            for i, chunk in enumerate(chunks):
+                # Ensure chunk is long enough for summarization (min 30 words)
+                chunk_words = len(chunk.split())
+                if chunk_words > 30:
+                    try:
+                        # Adjust max_length based on chunk size
+                        max_len = min(150, max(50, chunk_words // 3))
+                        min_len = min(30, max_len - 10)
+                        
+                        result = self.summarizer(
+                            chunk, 
+                            max_length=max_len, 
+                            min_length=min_len, 
+                            do_sample=False
+                        )
+                        summary_parts.append(result[0]["summary_text"])
+                        print(f"Summarized chunk {i+1}/{len(chunks)}")
+                    except Exception as e:
+                        print(f"Error summarizing chunk {i}: {e}")
+                        # Use first part of chunk as fallback
+                        summary_parts.append(chunk[:200] + "...")
+                else:
+                    # Chunk too short, include as-is
+                    summary_parts.append(chunk)
+            
+            summary = " ".join(summary_parts)
+            
             return {
-                "error": f"Document exceeds 10000 words ({word_count} words)",
+                "summary": summary,
+                "wordCount": word_count,
+                "chunkCount": len(chunks),
+                "success": True
+            }
+            
+        except ValueError as e:
+            return {
+                "error": str(e),
                 "success": False
             }
-
-        # Get chunks
-        chunks = self._chunk_by_sentences(text, chunk_length, overlap_length)
-        
-        # Summarize each chunk
-        summary_parts = []
-        
-        for chunk in chunks:
-            # Ensure chunk is long enough for summarization (min 50 tokens)
-            if len(chunk.split()) > 50:
-                try:
-                    result = self.summarizer(chunk, max_length=150, min_length=30, do_sample=False)
-                    summary_parts.append(result[0]["summary_text"])
-                except Exception as e:
-                    print(f"Error summarizing chunk: {e}")
-                    summary_parts.append(chunk[:200])
-            else:
-                summary_parts.append(chunk)
-        
-        summary = " ".join(summary_parts)
-        
-        return {
-            "summary": summary,
-            "wordCount": word_count,
-            "chunkCount": len(chunks),
-            "success": True
-        }
+        except Exception as e:
+            print(f"Error in summarize: {e}")
+            return {
+                "error": f"Summarization failed: {str(e)}",
+                "success": False
+            }
 
 
 @app.function()
@@ -137,7 +229,9 @@ def summarize_endpoint(request: dict) -> dict:
     Web endpoint for summarization.
     
     Expects JSON body with:
-    - content: str - The text to summarize
+    - content: str - The text content or base64-encoded file
+    - fileType: str (optional, default 'txt') - File type: 'txt', 'pdf', or 'docx'
+    - isBase64: bool (optional, default False) - Whether content is base64-encoded
     - chunkLength: int (optional, default 500) - Words per chunk
     - overlapLength: int (optional, default 50) - Overlap between chunks
     
@@ -147,6 +241,8 @@ def summarize_endpoint(request: dict) -> dict:
     - chunkCount: int - Number of chunks processed
     """
     content = request.get("content", "")
+    file_type = request.get("fileType", "txt")
+    is_base64 = request.get("isBase64", False)
     chunk_length = request.get("chunkLength", 500)
     overlap_length = request.get("overlapLength", 50)
     
@@ -154,7 +250,13 @@ def summarize_endpoint(request: dict) -> dict:
         return {"error": "No content provided", "success": False}
     
     summarizer = Summarizer()
-    return summarizer.summarize.remote(content, chunk_length, overlap_length)
+    return summarizer.summarize.remote(
+        content, 
+        file_type, 
+        is_base64, 
+        chunk_length, 
+        overlap_length
+    )
 
 
 # For local testing
@@ -176,7 +278,7 @@ def main():
     """
     
     summarizer = Summarizer()
-    result = summarizer.summarize.remote(test_text, 500, 50)
+    result = summarizer.summarize.remote(test_text, "txt", False, 500, 50)
     print(f"Summary: {result.get('summary', 'No summary generated')}")
     print(f"Word Count: {result.get('wordCount', 0)}")
     print(f"Chunks: {result.get('chunkCount', 0)}")

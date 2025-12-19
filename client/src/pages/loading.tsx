@@ -32,17 +32,16 @@ export default function Loading() {
       try {
         const jobData = JSON.parse(job);
 
-        // Read file content as text
-        const fileContent = jobData.fileContent || '';
-
         const response = await fetch("/api/summarize", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            content: fileContent,
+            content: jobData.fileContent,
             fileName: jobData.fileName,
+            fileType: jobData.fileType || 'txt',
+            isBase64: jobData.isBase64 || false,
             chunkLength: jobData.chunkLength,
             overlapLength: jobData.overlapLength,
           }),

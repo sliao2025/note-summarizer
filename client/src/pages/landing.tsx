@@ -30,17 +30,26 @@ export default function Landing() {
     setFileName(selectedFile.name);
 
     try {
-      const text = await selectedFile.text();
-      const words = countWords(text);
-      setWordCount(words);
+      const fileExtension = selectedFile.name.split('.').pop()?.toLowerCase();
+      
+      // For text files, read and count words directly
+      if (fileExtension === 'txt') {
+        const text = await selectedFile.text();
+        const words = countWords(text);
+        setWordCount(words);
 
-      if (words > MAX_WORDS) {
-        setError(
-          `Document exceeds ${MAX_WORDS} words (${words} words). Please use a shorter document.`
-        );
-        setFile(null);
-        setFileName("");
-        setWordCount(0);
+        if (words > MAX_WORDS) {
+          setError(
+            `Document exceeds ${MAX_WORDS} words (${words} words). Please use a shorter document.`
+          );
+          setFile(null);
+          setFileName("");
+          setWordCount(0);
+        }
+      } else {
+        // For PDF/DOCX, we can't count words on frontend - show estimated
+        // The backend will do the actual extraction and validation
+        setWordCount(-1); // -1 indicates unknown, will be validated server-side
       }
     } catch {
       setError("Failed to read file. Please try another file.");
@@ -62,13 +71,29 @@ export default function Landing() {
     handleFileSelect(e.target.files?.[0] || null);
   };
 
+  // Convert file to base64
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => {
+        const result = reader.result as string;
+        // Remove the data URL prefix (e.g., "data:application/pdf;base64,")
+        const base64 = result.split(',')[1];
+        resolve(base64);
+      };
+      reader.onerror = reject;
+    });
+  };
+
   const handleSubmit = async () => {
     if (!file) {
       setError("Please select a file");
       return;
     }
 
-    if (wordCount > MAX_WORDS) {
+    // Only validate word count for text files (wordCount !== -1)
+    if (wordCount !== -1 && wordCount > MAX_WORDS) {
       setError(
         `Document exceeds ${MAX_WORDS} words. Please use a shorter document.`
       );
@@ -78,16 +103,27 @@ export default function Landing() {
     try {
       setLoading(true);
 
-      // Read file content as text
-      const fileContent = await file.text();
+      const fileExtension = file.name.split('.').pop()?.toLowerCase() || 'txt';
+      let fileContent: string;
+      let isBase64 = false;
 
-      // Store job data for loading page (content as text, not File object)
+      // For text files, read as text; for binary files (PDF/DOCX), encode as base64
+      if (fileExtension === 'txt') {
+        fileContent = await file.text();
+      } else {
+        fileContent = await fileToBase64(file);
+        isBase64 = true;
+      }
+
+      // Store job data for loading page
       sessionStorage.setItem(
         "summaryJob",
         JSON.stringify({
           fileContent,
           fileName,
-          wordCount,
+          fileType: fileExtension,
+          isBase64,
+          wordCount: wordCount === -1 ? null : wordCount,
           chunkLength,
           overlapLength,
         })
@@ -156,7 +192,7 @@ export default function Landing() {
                     {fileName}
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    {wordCount.toLocaleString()} words
+                    {wordCount === -1 ? "Word count will be validated on submit" : `${wordCount.toLocaleString()} words`}
                   </p>
                 </>
               ) : (
