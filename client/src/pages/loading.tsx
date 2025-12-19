@@ -32,14 +32,20 @@ export default function Loading() {
       try {
         const jobData = JSON.parse(job);
 
-        const formData = new FormData();
-        formData.append("file", jobData.file);
-        formData.append("chunkLength", jobData.chunkLength.toString());
-        formData.append("overlapLength", jobData.overlapLength.toString());
+        // Read file content as text
+        const fileContent = jobData.fileContent || '';
 
         const response = await fetch("/api/summarize", {
           method: "POST",
-          body: formData,
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            content: fileContent,
+            fileName: jobData.fileName,
+            chunkLength: jobData.chunkLength,
+            overlapLength: jobData.overlapLength,
+          }),
         });
 
         if (!response.ok) {
