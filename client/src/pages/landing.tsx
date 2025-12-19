@@ -77,17 +77,16 @@ export default function Landing() {
 
     try {
       setLoading(true);
-      const text = await file.text();
 
-      // Store in session/local state for loading page
+      // Store job for loading page
       sessionStorage.setItem(
         "summaryJob",
         JSON.stringify({
+          file,
           fileName,
           wordCount,
           chunkLength,
           overlapLength,
-          content: text,
         })
       );
 

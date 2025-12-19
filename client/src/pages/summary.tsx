@@ -17,6 +17,7 @@ export default function Summary() {
   const [, setLocation] = useLocation();
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const result = sessionStorage.getItem("summaryResult");
@@ -25,7 +26,13 @@ export default function Summary() {
       return;
     }
 
-    setSummary(JSON.parse(result));
+    try {
+      setSummary(JSON.parse(result));
+    } catch {
+      setLocation("/");
+    } finally {
+      setLoading(false);
+    }
   }, [setLocation]);
 
   const handleCopy = () => {
@@ -63,8 +70,15 @@ ${summary.summaryText}`;
     setLocation("/");
   };
 
-  if (!summary) {
-    return null;
+  if (loading || !summary) {
+    return (
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading summary...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -98,7 +112,7 @@ ${summary.summaryText}`;
           <div className="text-sm text-muted-foreground opacity-60 space-y-1">
             <p>File: {summary.fileName}</p>
             <p>
-              Original: {summary.originalWordCount.toLocaleString()} words •
+              Original: {summary.originalWordCount?.toLocaleString() || 0} words •
               Generated:{" "}
               {new Date(summary.createdAt).toLocaleDateString("en-US", {
                 month: "short",

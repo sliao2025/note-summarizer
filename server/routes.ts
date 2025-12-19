@@ -6,6 +6,31 @@ import multer from "multer";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
+const PYTHON_SERVER = "http://localhost:5001";
+
+async function callPythonServer(
+  content: string,
+  chunkLength: number,
+  overlapLength: number
+) {
+  const response = await fetch(`${PYTHON_SERVER}/summarize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      content,
+      chunkLength,
+      overlapLength,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || "Summarization failed");
+  }
+
+  return response.json();
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -39,11 +64,26 @@ export async function registerRoutes(
         overlapLength: req.body.overlapLength ? Number(req.body.overlapLength) : 50,
       });
 
+      // Call Python server for summarization
+      let summaryText = "";
+      try {
+        const result = await callPythonServer(
+          content,
+          params.chunkLength,
+          params.overlapLength
+        );
+        summaryText = result.summary;
+      } catch (error) {
+        console.error("Python server error:", error);
+        // Fallback to basic truncation if Python server unavailable
+        summaryText = content.substring(0, Math.min(500, content.length)) + "...";
+      }
+
       // Create summary record
       const summary = await storage.createSummary({
         fileName,
         originalWordCount: wordCount,
-        summaryText: content.substring(0, 500) + "...", // Mock summary
+        summaryText,
         chunkLength: params.chunkLength,
         overlapLength: params.overlapLength,
         createdAt: new Date().toISOString(),

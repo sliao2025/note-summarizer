@@ -12,6 +12,7 @@ const MESSAGES = [
 export default function Loading() {
   const [, setLocation] = useLocation();
   const [messageIndex, setMessageIndex] = useState(0);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     // Check if we have a job
@@ -26,35 +27,53 @@ export default function Loading() {
       setMessageIndex((prev) => (prev + 1) % MESSAGES.length);
     }, 2500);
 
+    // Start processing
+    const processFile = async () => {
+      try {
+        const jobData = JSON.parse(job);
+
+        const formData = new FormData();
+        formData.append("file", jobData.file);
+        formData.append("chunkLength", jobData.chunkLength.toString());
+        formData.append("overlapLength", jobData.overlapLength.toString());
+
+        const response = await fetch("/api/summarize", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || "Failed to generate summary");
+        }
+
+        const summary = await response.json();
+        sessionStorage.setItem("summaryResult", JSON.stringify(summary));
+        sessionStorage.removeItem("summaryJob");
+        setLocation("/summary");
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Failed to process file";
+        setError(message);
+        setTimeout(() => setLocation("/"), 3000);
+      }
+    };
+
+    processFile();
+
     return () => clearInterval(interval);
   }, [setLocation]);
 
-  useEffect(() => {
-    // Simulate processing time (in real app, poll server for completion)
-    const timer = setTimeout(() => {
-      // Store the summary (in real app, fetch from server)
-      const job = sessionStorage.getItem("summaryJob");
-      if (job) {
-        const jobData = JSON.parse(job);
-        // Generate a mock summary for now
-        const mockSummary = jobData.content.substring(0, 500) + "...";
-
-        sessionStorage.setItem(
-          "summaryResult",
-          JSON.stringify({
-            ...jobData,
-            summaryText: mockSummary,
-            id: Date.now().toString(),
-            createdAt: new Date().toISOString(),
-          })
-        );
-      }
-
-      setLocation("/summary");
-    }, 5000); // 5 second processing time for demo
-
-    return () => clearTimeout(timer);
-  }, [setLocation]);
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center p-6">
+        <div className="text-center space-y-4">
+          <p className="text-lg font-medium text-destructive">{error}</p>
+          <p className="text-sm text-muted-foreground">Redirecting...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
